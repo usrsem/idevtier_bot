@@ -47,7 +47,7 @@ async def _send_message_to_group_customers(message: Message, tag: str) -> None:
         if user.status in forwarding_rules[tag]:
             await bot.send_message(
                 chat_id=customer.telegram_user_id,
-                text=f"From group: [{group_name}]({message.url})\n\n"
+                text=f"@{message.from_user.username} from [{group_name}]({message.url}):\n\n"
                     f"{message_text}",
                 parse_mode='markdown',
             )
