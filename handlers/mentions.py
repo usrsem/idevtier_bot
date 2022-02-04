@@ -32,7 +32,7 @@ def _is_group(message: Message) -> bool:
 async def _send_message_to_group_customers(message: Message, tag: str) -> None:
     """Sends tagged message to all users from message's group"""
     group_name: str = message.chat.title
-    message_text: str = message.text.replace(f"@{tag}", "").strip()
+    message_text: str = message.text.strip()
     chat: Chat = await bot.get_chat(message.chat.id)
     customers: tuple[Customer] = get_all_cutomers()
     flag: bool = True
