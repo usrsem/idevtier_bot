@@ -3,6 +3,7 @@ from model.Customer import Customer
 from repository.customer_repository import get_all_cutomers
 from aiogram.types.chat import Chat
 from aiogram.types import Message
+from loguru import logger as log
 
 
 forwarding_rules: dict[str, tuple[str, ...]] = dict({
@@ -44,7 +45,10 @@ async def _send_message_to_group_customers(message: Message, tag: str) -> None:
 
         user = await chat.get_member(customer.telegram_user_id)
 
+        log.info("Checkig {user=} with {tag=} rules")
         if user.status in forwarding_rules[tag]:
+            log.info(f"Sending message from group {group_name} "
+                     f"to {customer.telegram_full_name}")
             await bot.send_message(
                 chat_id=customer.telegram_user_id,
                 text=f"@{message.from_user.username} from [{group_name}]({message.url}):\n\n"
