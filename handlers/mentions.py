@@ -1,5 +1,4 @@
 import asyncio
-from functools import partial
 from typing import Callable
 
 from aiogram.types import Message, InputMedia, InputMediaPhoto, InputMediaDocument, \
@@ -78,7 +77,7 @@ def _is_group(message: Message) -> bool:
 
 
 def _contains(string: str) -> Callable[[str], bool]:
-    return partial(lambda x, y: x in y, string)
+    return lambda y: string in y
 
 
 def _get_text(message: Message) -> str:
