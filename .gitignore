@@ -5,7 +5,7 @@ tmp/
 env
 *.db
 **__pycache__**
-
+venv
 *.py[cod]
 *.egg
 build
