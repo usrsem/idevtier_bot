@@ -1,135 +1,127 @@
-import asyncio
 from typing import Callable
 
-from aiogram.types import Message, InputMedia, InputMediaPhoto, InputMediaDocument, \
-    InputMediaVideo, InputMediaAudio
+from aiogram.types import Message, InputMedia
 from aiogram.types.chat import Chat
 from loguru import logger as log
 
 from loader import bot, dp
 from model.Customer import Customer
-from model.Sender import Sender
 from repository.customer_repository import get_all_cutomers
+from cache.SendersMediaCache import SendersMediaCache, content_types, media_types
 
 forwarding_rules: dict[str, tuple[str, ...]] = dict({
     "all": tuple(["member", "creator"]),
     "admin": tuple(["creator"])
 })
 
-_media_types = ["photo", "video", "document", "audio"]
-_content_types = ["text"] + _media_types
-waiting_senders: dict[int, dict[int, Sender]] = dict()
+tags: set[str] = {"@all", "@admin"}
+media_cache: SendersMediaCache = SendersMediaCache()
 
 
-def _filter(key: str) -> Callable[[Message], bool]:
-    return lambda message: key in _get_text(message)
+def group_catcher() -> Callable[[Message], bool]:
+    return lambda message: _in_group(message)
+
+def _waiting_media_catcher() -> Callable[[Message], bool]:
+    return lambda m : _in_group(m) and media_cache.is_user_waiting_media(m)
 
 
-@dp.message_handler(_filter("@all"), content_types=_content_types)
+@dp.message_handler(group_catcher(), content_types=content_types)
 async def catch_all_tag(message: Message) -> None:
-    """Catches messages with @all and sends to group users"""
-    if _is_group(message):
-        await _wait_for_media(message, 3)
-        await _send_message_to_group_customers(message, "all")
+    """
+    Catches messages from groups with @all or @admin
+    and sends to group users
+    """
+    tag: str = _get_tag(message)
+    if tag:
+        await media_cache.wait_for_media(message)
+        await _send_message_to_group_customers(message, tag[1:])
 
 
-@dp.message_handler(_filter("@admin"), content_types=_content_types)
-async def catch_admin_tag(message: Message) -> None:
-    """Catches messages with @all and sends to group users"""
-    if _is_group(message):
-        await _wait_for_media(message, 3)
-        await _send_message_to_group_customers(message, "admin")
+@dp.message_handler(_waiting_media_catcher(), content_types=media_types)
+async def catch_and_save_media(message: Message) -> None:
+    log.info(f"Catched media from {message.from_user.username}")
+    media_cache.add_media(message)
 
-
-@dp.message_handler(content_types=_media_types)
-async def catch_media(message: Message) -> None:
-    if _is_group(message) and _is_user_waiting_media(message):
-        log.info(f"catched media from {message.from_user.username}")
-        waiting_senders[message.chat.id][message.from_user.id].add_media(_get_media(message))
-
-
-def _is_user_waiting_media(message: Message) -> bool:
-    return message.chat.id in waiting_senders and message.from_user.id in waiting_senders[message.chat.id]
-
-
-def _remove_user_from_waiting_senders(message: Message):
-    chat_id: int = message.chat.id
-    user_id: int = message.from_user.id
-    if chat_id in waiting_senders:
-        if user_id in waiting_senders[chat_id]:
-            waiting_senders[chat_id].pop(user_id)
-        if len(waiting_senders[chat_id]) == 0:
-            waiting_senders.pop(chat_id)
-
-
-async def _wait_for_media(message: Message, time: float):
-    chat_id: int = message.chat.id
-    user_id: int = message.from_user.id
-    if chat_id not in waiting_senders:
-        waiting_senders[chat_id] = {user_id: Sender(user_id)}
-    else:
-        waiting_senders[chat_id][user_id] = Sender(user_id)
-    await asyncio.sleep(time)
-
-
-def _is_group(message: Message) -> bool:
-    return message.chat.type in ["supergroup", "group"]
-
-
-def _contains(string: str) -> Callable[[str], bool]:
-    return lambda y: string in y
-
-
-def _get_text(message: Message) -> str:
-    text_containers: list[str] = [message.text, message.caption]
-    return "\n".join([text for text in text_containers if text is not None])
-
-
-def _get_media(message: Message) -> list[InputMedia]:
-    media: list[InputMedia] = []
-    if message.video is not None:
-        media.append(InputMediaVideo(message.video.file_id))
-    if message.photo is not None and len(message.photo) > 0:
-        media.append(InputMediaPhoto(message.photo.pop().file_id))
-    if message.document is not None:
-        media.append(InputMediaDocument(message.document.file_id))
-    if message.audio is not None:
-        media.append(InputMediaAudio(message.audio.file_id))
-    return media
 
 
 async def _send_message_to_group_customers(message: Message, tag: str) -> None:
     """Sends tagged message to all users from message's group"""
     group_name: str = message.chat.title
     message_text: str = _get_text(message).replace(f"@{tag}", "").strip()
-    media: list[InputMedia] = _get_media(message)
-    if _is_user_waiting_media(message):
-        media.extend(waiting_senders[message.chat.id][message.from_user.id].media)
-        _remove_user_from_waiting_senders(message)
-    is_message_contains_media: bool = len(media) > 0
-    chat: Chat = await bot.get_chat(message.chat.id)
-    customers: tuple[Customer] = get_all_cutomers()
-    flag: bool = True
+    media: list[InputMedia] = _get_media_for_sending(message)
 
-    for customer in customers:
+    for customer in await _get_customers_for_sending(message, tag):
+        log.info(f"Sending message "
+                 f"{'and media' if media else ''} "
+                 f"from group {group_name} "
+                 f"to {customer.telegram_full_name}"
+        )
+
+        await bot.send_message(
+            chat_id=customer.telegram_user_id,
+            text=f"{get_username(message)} "
+                 f"from [{group_name}]({message.url}):\n\n"
+                 f"{message_text}",
+            parse_mode='markdown',
+        )
+
+        if media:
+            await bot.send_media_group(
+                chat_id=customer.telegram_user_id,
+                media=media,
+                disable_notification=True
+            )
+
+
+def _get_media_for_sending(message: Message) -> list[InputMedia]:
+    media: list[InputMedia] = media_cache.get_media(message)
+
+    if media_cache.is_user_waiting_media(message):
+        media.extend(media_cache.get_sender_media(message))
+        media_cache.remove_sender(message)
+
+    return media
+
+
+async def _get_customers_for_sending(
+    message: Message,
+    tag: str
+) -> list[Customer]:
+
+    chat: Chat = await bot.get_chat(message.chat.id)
+    all_customers: tuple[Customer] = get_all_cutomers()
+    result_customers: list[Customer] = []
+
+    flag: bool = True
+    for customer in all_customers:
         if flag and customer.telegram_user_id == message.from_user.id:
             flag = False
             continue
 
         user = await chat.get_member(customer.telegram_user_id)
-
-        log.info("Checkig {user=} with {tag=} rules")
+        log.info(f"Checkig {user=} with {tag=} rules")
         if user.status in forwarding_rules[tag]:
-            log.info(f"Sending message {'and media' if is_message_contains_media else ''} from group {group_name} "
-                     f"to {customer.telegram_full_name}")
-            await bot.send_message(
-                chat_id=customer.telegram_user_id,
-                text=f"@{message.from_user.username} from [{group_name}]({message.url}):\n\n"
-                     f"{message_text}",
-                parse_mode='markdown',
-            )
-            if is_message_contains_media:
-                await bot.send_media_group(
-                    chat_id=customer.telegram_user_id,
-                    media=media
-                )
+            result_customers.append(customer)
+
+    return result_customers
+
+
+def get_username(message: Message) -> str:
+    if message.from_user.username is not None:
+        return "@" + message.from_user.username
+    return message.from_user.full_name
+
+
+def _get_tag(message: Message) -> str:
+    for tag in tags:
+        if tag in _get_text(message):
+            return tag
+    return ""
+
+
+def _get_text(message: Message) -> str:
+    text_containers: tuple[str, str] = tuple((message.text, message.caption))
+    return "\n".join([t for t in text_containers if t is not None])
+
+def _in_group(message: Message) -> bool:
+    return message.chat.type in {"supergroup", "group"}
