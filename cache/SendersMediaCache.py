@@ -5,12 +5,10 @@ from aiogram.types.input_media import InputMedia, InputMediaAudio, InputMediaPho
 from model.Sender import Sender
 from aiogram.types import Message
 
-from loguru import logger as log
-
 
 media_types: tuple[str] = tuple(["photo", "video", "document", "audio"])
 content_types: tuple[str] = tuple(["text", *media_types])
-default_wait_media_time: float = 10.0
+default_wait_media_time: float = 5.0
 
 
 class SendersMediaCache:
@@ -20,7 +18,6 @@ class SendersMediaCache:
 
 
     def add_media(self, message: Message) -> None:
-        log.info("Adding media")
         self.cache[message.chat.id][message.from_user.id].add_media(
             self.get_media(message)
         )

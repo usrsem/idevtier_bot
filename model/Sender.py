@@ -8,3 +8,4 @@ class Sender:
 
     def add_media(self, media: list[InputMedia]):
         self.media.extend(media)
+

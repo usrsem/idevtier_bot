@@ -10,8 +10,8 @@ from repository.customer_repository import get_all_cutomers
 from cache.SendersMediaCache import SendersMediaCache, content_types, media_types
 
 forwarding_rules: dict[str, tuple[str, ...]] = dict({
-    "all": tuple(["member", "creator"]),
-    "admin": tuple(["creator"])
+    "all": tuple(["member", "creator", "administrator"]),
+    "admin": tuple(["creator", "administrator"])
 })
 
 tags: set[str] = {"@all", "@admin"}
@@ -25,23 +25,25 @@ def _waiting_media_catcher() -> Callable[[Message], bool]:
     return lambda m : _in_group(m) and media_cache.is_user_waiting_media(m)
 
 
-@dp.message_handler(group_catcher(), content_types=content_types)
-async def catch_all_tag(message: Message) -> None:
-    """
-    Catches messages from groups with @all or @admin
-    and sends to group users
-    """
-    tag: str = _get_tag(message)
-    if tag:
-        await media_cache.wait_for_media(message)
-        await _send_message_to_group_customers(message, tag[1:])
-
-
 @dp.message_handler(_waiting_media_catcher(), content_types=media_types)
 async def catch_and_save_media(message: Message) -> None:
+    """Catches media if already was tagged @all or @admin"""
     log.info(f"Catched media from {message.from_user.username}")
     media_cache.add_media(message)
 
+
+@dp.message_handler(group_catcher(), content_types=content_types)
+async def catch_all_tag(message: Message) -> None:
+    """
+    Catches messages from groups with @all or @admin,
+    waits and sends to group users
+    """
+    log.info("haha")
+    tag: str = _get_tag(message)
+    if tag:
+        log.info(f"Catched message with {tag}")
+        await media_cache.wait_for_media(message)
+        await _send_message_to_group_customers(message, tag[1:])
 
 
 async def _send_message_to_group_customers(message: Message, tag: str) -> None:
