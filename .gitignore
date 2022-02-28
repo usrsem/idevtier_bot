@@ -10,3 +10,4 @@ venv
 *.egg
 build
 htmlcov
+pyrightconfig.json
