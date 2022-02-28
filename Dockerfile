@@ -12,6 +12,7 @@ COPY *.py ./
 COPY config ./config
 COPY handlers ./handlers
 COPY model ./model
+COPY cache ./cache
 COPY repository ./repository
 RUN pip install -U pip && pip install -r requirements.txt && apt-get update && apt-get install sqlite3
 
